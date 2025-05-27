@@ -98,16 +98,16 @@ JSON_FROMDATA = \
 if ( mediaType == "application/json") {
     if (data instanceof byte[]) {
         ByteArrayInputStream stream = new ByteArrayInputStream((byte[]) data);
-        return (new ObjectMapper()).readValue(stream, {typeName}.class);
+        return OBJECT_MAPPER_INSTANCE.readValue(stream, {typeName}.class);
     }
     else if (data instanceof InputStream) {
-        return (new ObjectMapper()).readValue((InputStream)data, {typeName}.class);
+        return OBJECT_MAPPER_INSTANCE.readValue((InputStream)data, {typeName}.class);
     }
     else if (data instanceof JsonNode) {
-        return (new ObjectMapper()).readValue(((JsonNode)data).toString(), {typeName}.class);
+        return OBJECT_MAPPER_INSTANCE.readValue(((JsonNode)data).toString(), {typeName}.class);
     }
     else if ( data instanceof String) {
-        return (new ObjectMapper()).readValue(((String)data), {typeName}.class);
+        return OBJECT_MAPPER_INSTANCE.readValue(((String)data), {typeName}.class);
     }
     throw new UnsupportedOperationException("Data is not of a supported type for JSON conversion to {typeName}");
 }
@@ -116,7 +116,7 @@ JSON_TOBYTEARRAY_THROWS = ",JsonProcessingException"
 JSON_TOBYTEARRAY = \
     """
 if ( mediaType == "application/json") {    
-    result = new ObjectMapper().writeValueAsBytes(this);
+    result = OBJECT_MAPPER_INSTANCE.writeValueAsBytes(this);
 }
 """
 
@@ -358,6 +358,7 @@ class AvroToJava:
         if self.avro_annotation:
             class_definition += " implements SpecificRecord"
         class_definition += " {\n"
+        class_definition += f"{INDENT}static final ObjectMapper OBJECT_MAPPER_INSTANCE = new ObjectMapper();\n"
         class_definition += f"{INDENT}public {class_name}() {{}}\n"
         class_definition += class_body
 
