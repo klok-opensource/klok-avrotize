@@ -37,6 +37,112 @@ POM_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
 </project>
 """
 
+BUILD_GRADLE_CONTENT = \
+    """import dev.klok.framework.gradle.model.ProjectType
+import dev.klok.framework.gradle.model.ProjectVisibility
+
+plugins {
+    // You can add more plugins here if needed
+    // klok will apply and configure java-library, maven-publish and jreleaser automatically
+    // Version and plugin id is defined in gradle/klok-libs.versions.toml
+    alias klokLibs.plugins.gradle
+}
+
+repositories {
+    klokRespositories {
+        klokDefaultRepositories() // This includes mavenLocal(), mavenCentral(), klokGitLabRepositories() and tenantGitLabRepositories()
+    }
+}
+
+// Klok gradle plugin automatically adds bundles for
+// your project type from klok-libs.versions.toml
+dependencies {
+    // Add your custom dependencies here
+}
+
+// This configuration block is used to configure klok
+// All properties can be set via environment variables or gradle properties in the home folder
+// they follow the pattern KLOK_<PROPERTY_NAME> for environment variables
+// and klok<PropertyName> for gradle property files.
+klok {
+    projectType = ProjectType.DATAMODEL             // Best practice: Set here.
+    projectVisibility = ProjectVisibility.PUBLIC    // Best practice: Set as build environment variable (KLOK_PROJECT_VISIBILITY) or gradle property (klokProjectVisibility)
+    projectDesc = "Models for acting with the ODL API directly via broker" // Best practice: Set here.
+    // tenant = "tenant" // Best practice: Set this from CICD (KLOK_TENANT environment variable)
+
+    majorVersion = "1"      // Best practice: Set here or gradle properties in project root
+    minorVersion = "0"      // Best practice: Set here or gradle properties in project root
+    patchVersion = "0"      // Best practice: Set here or gradle properties in project root
+}
+"""
+
+SETTINGS_GRADLE_CONTENT = \
+"""
+pluginManagement {
+    repositories {
+        mavenLocal()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {versionCatalogs {
+    klokLibs { from files('gradle/klok-libs.versions.toml') }
+} }
+"""
+
+KLOK_LIBS_VERSIONS_TOML_CONTENT = \
+"""
+[versions]
+klokGradlePluginVersion = "0.2.0+250528140808"
+klokCommonVersion = "0.2.0+250527114550"
+klokBrokerclientVersion = "0.2.0+250526103818"
+
+pulsarClientVersion="4.0.4"
+
+quarkusVersion = "3.22.1"
+camelVersion = "4.11.0"
+opentelemetrySdkVersion="1.49.0"
+
+jacksonVersion = "2.18.3"
+avroVersion = "1.11.4"
+
+slf4jApiVersion="XXX"
+junitJupiterVersion = "5.10.2"
+
+[plugins]
+gradle = { id = "dev.klok.integration", version.ref = "klokGradlePluginVersion" }
+
+[libraries]
+klokCommon =            { module = "dev.klok.framework:klok-common", version.ref = "klokCommonVersion" }
+klokBrokerclientJava =  { module = "dev.klok.framework:klok-brokerclient-java", version.ref = "klokBrokerclientVersion" }
+klokQuarkusExtension =  { module = "dev.klok.framework:klok-quarkus-extension", version.ref = "quarkusVersion" }
+
+jackson = { module = "com.fasterxml.jackson:jackson-bom", version.ref = "jacksonVersion" }
+avro = { module = "org.apache.avro:avro", version.ref = "avroVersion" }
+pulsarClient = { module = "org.apache.pulsar:pulsar-client", version.ref = "pulsarClientVersion" }
+slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4jApiVersion" }
+opentelemetrySdk = { module = "io.opentelemetry:opentelemetry-sdk", version.ref = "opentelemetrySdkVersion" }
+junitJupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junitJupiterVersion" }
+junitPlatformLauncher = { module = "org.junit.platform:junit-platform-launcher" }
+
+[bundles]
+klokIntegrationImpl = ["klokCommon", "klokBrokerclientJava"]
+klokIntegrationApi = []
+klokIntegrationProv = []
+klokIntegrationTest = [ "junitJupiter", "junitPlatformLauncher" ]
+
+klokApplicationImpl = [ "klokCommon", "klokBrokerclientJava" ]
+klokApplicationApi = []
+klokApplicationProv = []
+klokApplicationTest = [ "junitJupiter", "junitPlatformLauncher" ]
+
+klokDatamodelImpl = [ "jackson", "avro" ]
+klokDatamodelApi = []
+klokDatamodelProv = []
+klokDatamodelTest = [ "junitJupiter", "junitPlatformLauncher" ]
+"""
+
 PREAMBLE_TOBYTEARRAY = \
 """
 byte[] result = null;
@@ -954,6 +1060,23 @@ class AvroToJava:
             artifactid = package_elements[-1]
             with open(pom_path, 'w', encoding='utf-8') as file:
                 file.write(POM_CONTENT.format(groupid=groupid, artifactid=artifactid, AVRO_VERSION=AVRO_VERSION, JACKSON_VERSION=JACKSON_VERSION, JDK_VERSION=JDK_VERSION, PACKAGE=self.base_package))
+
+        build_gradle_path = os.path.join(output_dir, "build.gradle")
+        if not os.path.exists(build_gradle_path):
+            with open(build_gradle_path, 'w', encoding='utf-8') as file:
+                file.write(BUILD_GRADLE_CONTENT)
+        
+        settings_gradle_path = os.path.join(output_dir, "settings.gradle")
+        if not os.path.exists(settings_gradle_path):
+            with open(settings_gradle_path, 'w', encoding='utf-8') as file:
+                file.write(SETTINGS_GRADLE_CONTENT)
+    
+        klok_libs_gradle_path = os.path.join(output_dir, "gradle/klok-libs.versions.toml")
+        os.makedirs(os.path.dirname(klok_libs_gradle_path), exist_ok=True)
+        if not os.path.exists(klok_libs_gradle_path):
+            with open(klok_libs_gradle_path, 'w', encoding='utf-8') as file:
+                file.write(KLOK_LIBS_VERSIONS_TOML_CONTENT)
+
         output_dir = os.path.join(
             output_dir, "src/main/java".replace('/', os.sep))
         if not os.path.exists(output_dir):
