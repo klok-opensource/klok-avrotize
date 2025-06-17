@@ -464,7 +464,7 @@ class AvroToJava:
         if self.avro_annotation:
             class_definition += " implements SpecificRecord"
         class_definition += " {\n"
-        class_definition += f"{INDENT}static final ObjectMapper OBJECT_MAPPER_INSTANCE = new ObjectMapper();\n"
+        class_definition += f"{INDENT}static final com.fasterxml.jackson.databind.ObjectMapper OBJECT_MAPPER_INSTANCE = new com.fasterxml.jackson.databind.ObjectMapper();\n"
         class_definition += f"{INDENT}public {class_name}() {{}}\n"
         class_definition += class_body
 
@@ -907,7 +907,7 @@ class AvroToJava:
         class_definition += f"\n{INDENT}public static class Deserializer extends JsonDeserializer<" + union_class_name + "> {\n"
         class_definition += f"{INDENT*2}@Override\n"
         class_definition += f"{INDENT*2}public " + union_class_name + " deserialize(JsonParser p, DeserializationContext ctxt) throws IOException, JsonProcessingException {\n"
-        class_definition += f"{INDENT*3}ObjectMapper mapper = (ObjectMapper) p.getCodec();\n"
+        class_definition += f"{INDENT*3}com.fasterxml.jackson.databind.ObjectMapper mapper = (com.fasterxml.jackson.databind.ObjectMapper) p.getCodec();\n"
         class_definition += f"{INDENT*3}JsonNode node = mapper.readTree(p);\n"
         class_definition += class_definition_read
         class_definition += f"{INDENT*3}throw new UnsupportedOperationException(\"No record type matched the JSON data\");\n"
