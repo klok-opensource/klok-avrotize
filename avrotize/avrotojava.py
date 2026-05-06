@@ -112,8 +112,11 @@ dependencies {
 // and klok<PropertyName> for gradle property files.
 klok {
     projectType = ProjectType.DATAMODEL             // Best practice: Set here.
-    projectVisibility = ProjectVisibility.TENANT    // Best practice: Set as build environment variable (KLOK_PROJECT_VISIBILITY) or gradle property (klokProjectVisibility)
-    projectDesc = "Models for acting with the ODL API directly via broker" // Best practice: Set here.
+    //projectVisibility = ProjectVisibility.TENANT    // Best practice: Set as build environment variable (KLOK_PROJECT_VISIBILITY) or gradle property (klokProjectVisibility)
+    projectVisibility = System.getenv("KLOK_PROJECT_VISIBILITY")
+        ? ProjectVisibility.valueOf(System.getenv("KLOK_PROJECT_VISIBILITY"))
+        : ProjectVisibility.TENANT
+    projectDesc = "Data Models" // Best practice: Set here.
     // tenant = "tenant" // Best practice: Set this from CICD (KLOK_TENANT environment variable)
 
     majorVersion = "1"      // Best practice: Set here or gradle properties in project root
