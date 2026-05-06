@@ -83,6 +83,7 @@ POM_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
 </project>
 """
 
+# Klok additions
 BUILD_GRADLE_CONTENT = \
     """import dev.klok.framework.gradle.model.ProjectType
 import dev.klok.framework.gradle.model.ProjectVisibility
