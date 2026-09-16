@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="dev.klok.test" targetNamespace="dev.klok.test" elementFormDefault="qualified" version="1.0">
+  <xs:element name="OptionalElements_v1">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="event" type="tns:OptionalElementsV1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="OptionalElementsV1">
+    <xs:sequence>
+      <xs:element name="id" type="xs:string"/>
+      <xs:element name="subject" type="xs:string" minOccurs="0"/>
+      <xs:element name="time" type="xs:dateTime"/>
+      <xs:element name="tags" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>
