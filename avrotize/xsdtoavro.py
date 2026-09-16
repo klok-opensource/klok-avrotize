@@ -154,9 +154,14 @@ class XSDToAvro:
         if max_occurs is not None and max_occurs != '1':
             avro_type = {'type': 'array', 'items': avro_type}
         min_occurs = element.get('minOccurs')
-        if min_occurs is not None and min_occurs == '0':
+        optional = min_occurs is not None and min_occurs == '0'
+        if optional:
             avro_type = ['null', avro_type]
         avro_field = {'name': name, 'type': avro_type}
+        if optional:
+            # An optional element may be omitted by a writer and reads as null when a newer schema adds it;
+            # without the default every writer would have to set it explicitly and schema evolution would break.
+            avro_field['default'] = None
         annotation = element.find(f'{{{XSD_NAMESPACE}}}annotation', namespaces)
         if annotation is not None:
             documentation = annotation.find(

@@ -8,6 +8,7 @@ current_script_path = os.path.abspath(__file__)
 project_root = os.path.dirname(os.path.dirname(current_script_path))
 sys.path.append(project_root)
 
+import json
 import unittest
 from unittest.mock import patch
 from avrotize.xsdtoavro import convert_xsd_to_avro
@@ -51,3 +52,43 @@ class TestXsdToAvro(unittest.TestCase):
         self.validate_avro_schema(avro_path)
 
     
+
+    def test_optional_elements_get_a_null_default(self):
+        """ minOccurs="0" elements become ["null", T] with default null; required elements have no default """
+        cwd = os.getcwd()
+        xsd_path = os.path.join(cwd, "test", "xsd", "optional-elements.xsd")
+        avro_path = os.path.join(tempfile.gettempdir(), "avrotize", "optional-elements.avsc")
+        os.makedirs(os.path.dirname(avro_path), exist_ok=True)
+
+        convert_xsd_to_avro(xsd_path, avro_path)
+        self.validate_avro_schema(avro_path)
+
+        with open(avro_path, "r", encoding="utf-8") as f:
+            schema = json.load(f)
+        def find_record(node, name):
+            if isinstance(node, dict):
+                if node.get("type") == "record" and node.get("name") == name:
+                    return node
+                for value in node.values():
+                    found = find_record(value, name)
+                    if found is not None:
+                        return found
+            elif isinstance(node, list):
+                for value in node:
+                    found = find_record(value, name)
+                    if found is not None:
+                        return found
+            return None
+        record = find_record(schema, "OptionalElementsV1")
+        self.assertIsNotNone(record, "the complex type becomes a nested record")
+        fields = {f["name"]: f for f in record["fields"]}
+        self.assertEqual("string", fields["id"]["type"])
+        self.assertNotIn("default", fields["id"])
+        self.assertEqual(["null", "string"], fields["subject"]["type"])
+        self.assertIn("default", fields["subject"])
+        self.assertIsNone(fields["subject"]["default"])
+        self.assertEqual("null", fields["tags"]["type"][0])
+        self.assertEqual("array", fields["tags"]["type"][1]["type"])
+        self.assertIsNone(fields["tags"]["default"])
+        self.assertNotIn("default", fields["time"])
+

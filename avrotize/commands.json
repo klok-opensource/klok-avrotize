@@ -2958,7 +2958,9 @@
         "avro_annotation": "args.avro_annotation",
         "jackson_annotation": "args.jackson_annotation",
         "pascal_properties": "args.pascal_properties",
-        "xml_annotation": "args.xml_annotation"
+        "xml_annotation": "args.xml_annotation",
+        "implements_interfaces": "args.implements",
+        "gradle_dependencies": "args.gradle_dependencies"
       }
     },
     "extensions": [
@@ -3016,6 +3018,18 @@
         "type": "bool",
         "help": "Use Jakarta JAXB annotations and XML serialization",
         "default": false,
+        "required": false
+      },
+      {
+        "name": "--implements",
+        "type": "str",
+        "help": "Interfaces the generated record classes implement: Record=a.b.Interface[,Record=c.D]; '*' for every record",
+        "required": false
+      },
+      {
+        "name": "--gradle-dependencies",
+        "type": "str",
+        "help": "Extra dependency lines for the generated build.gradle, separated by ';' (e.g. 'api klokLibs.klokCommon')",
         "required": false
       }
     ],

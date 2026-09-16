@@ -60,6 +60,41 @@ class TestAvroToJava(unittest.TestCase):
         assert subprocess.check_call(
             "mvn package -B", cwd=java_path, stdout=sys.stdout, stderr=sys.stderr, shell=True) == 0
 
+    def test_convert_feeditem_avsc_to_java_avro_annotation_implements(self):
+        """ SpecificRecord classes carry SCHEMA$ and the interfaces given with --implements; the generated Maven
+        tests round-trip the record (timestamp included) through Avro binary """
+        cwd = os.getcwd()
+        avro_path = os.path.join(cwd, "test", "avsc", "feeditem.avsc")
+        java_path = os.path.join(tempfile.gettempdir(), "avrotize", "feeditem-java-implements")
+        if os.path.exists(java_path):
+            shutil.rmtree(java_path, ignore_errors=True)
+        os.makedirs(java_path, exist_ok=True)
+
+        convert_avro_to_java(avro_path, java_path, avro_annotation=True, package_name="feeditem.java.avro",
+                             implements_interfaces="FeedItem=java.io.Serializable,*=java.lang.Cloneable",
+                             gradle_dependencies="api klokLibs.klokCommon;testImplementation klokLibs.junitJupiter")
+
+        source_dir = os.path.join(java_path, "src", "main", "java")
+        sources = {}
+        for root, _, files in os.walk(source_dir):
+            for name in files:
+                if name.endswith(".java"):
+                    with open(os.path.join(root, name), "r", encoding="utf-8") as f:
+                        sources[name] = f.read()
+        feed_item = sources["FeedItem.java"]
+        assert "public class FeedItem implements SpecificRecord, java.io.Serializable, java.lang.Cloneable {" in feed_item
+        assert "public static final Schema SCHEMA$ = AVROSCHEMA;" in feed_item
+        author = sources["FeedItemAuthor.java"]
+        assert "implements SpecificRecord, java.lang.Cloneable {" in author, "'*' applies to every record"
+        assert "java.io.Serializable" not in author, "a record-specific interface applies to that record only"
+        assert "public static final Schema SCHEMA$ = AVROSCHEMA;" in author
+        with open(os.path.join(java_path, "build.gradle"), "r", encoding="utf-8") as f:
+            build_gradle = f.read()
+        assert "    api klokLibs.klokCommon\n    testImplementation klokLibs.junitJupiter\n" in build_gradle
+
+        assert subprocess.check_call(
+            "mvn package -B", cwd=java_path, stdout=sys.stdout, stderr=sys.stderr, shell=True) == 0
+
     def test_convert_telemetry_avsc_to_java(self):
         """ Test converting a telemetry.avsc file to C# """
         cwd = os.getcwd()

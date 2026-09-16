@@ -1,5 +1,29 @@
 All notable changes to Avrotize are documented in this file.
 
+## [Klok fork] - 2026-09-16
+
+### Added
+
+- **`a2java --implements`**: generated record classes implement the given interfaces (`Record=a.b.Interface`,
+  `*=...` for every record), so a datamodel can implement a framework interface such as `KlokCloudEvent`.
+- **`a2java --gradle-dependencies`**: extra dependency lines for the generated `build.gradle`
+  (`api klokLibs.klokCommon`).
+- **`a2java --avro-annotation` emits `SCHEMA$`**: the embedded schema is also exposed in the field Avro's
+  `SpecificData` and Pulsar's `Schema.AVRO(Class)` read, so the embedded schema is the one registered on the wire
+  instead of a schema derived by reflection.
+
+### Changed
+
+- **`x2a` optional elements carry `default: null`**: `minOccurs="0"` elements become `["null", T]` with a null
+  default, so a writer may omit them and schema evolution keeps working.
+
+### Fixed
+
+- **Generated Java tests for records with `java.time` fields**: the property tests declared `Instant` (and the
+  other `java.time`/`java.util.UUID`/`java.math.BigDecimal` types) without importing them, so the generated
+  project did not compile; and test instances used `Instant.now()`, so two instances were never equal and the
+  Avro round trip lost the sub-millisecond part. Test instances now use a fixed epoch-millis instant.
+
 ## [3.9.1] - 2026-08-26
 
 ### Added

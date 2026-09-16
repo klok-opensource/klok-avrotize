@@ -2,6 +2,7 @@
 
 """ Generates Java classes from Avro schema """
 import json
+import re
 import os
 from typing import Dict, List, Tuple, Union
 from avrotize.constants import (AVRO_VERSION, JAKARTA_XML_BIND_VERSION, JACKSON_ANNOTATIONS_VERSION, JACKSON_VERSION,
@@ -99,6 +100,11 @@ POM_CONTENT = """<?xml version="1.0" encoding="UTF-8"?>
     </build>
 </project>
 """
+
+# The field Avro's SpecificData and Pulsar's Schema.AVRO(Class) look for; without it Avro refuses a SpecificRecord
+# class ("Not a Specific class") and Pulsar falls back to a schema derived by reflection.
+SCHEMA_DOLLAR_FIELD = f"\n{INDENT}/** The embedded schema, in the field Avro's SpecificData and Pulsar's Schema.AVRO(Class) read. */"
+SCHEMA_DOLLAR_FIELD += f"\n{INDENT}public static final Schema SCHEMA$ = AVROSCHEMA;"
 
 # Klok additions
 BUILD_GRADLE_CONTENT = \
@@ -387,6 +393,11 @@ class AvroToJava:
         self.base_package = base_package.replace('.', '/')
         self.output_dir = os.getcwd()
         self.avro_annotation = False
+        # Interfaces the generated classes implement, keyed by record name (simple name, namespace-qualified name
+        # or '*' for every record); e.g. {'KlokCloudEventV1': ['dev.klok.framework.common.event.KlokCloudEvent']}
+        self.implements_interfaces: Dict[str, List[str]] = {}
+        # Extra dependency lines for the generated build.gradle, e.g. 'api klokLibs.klokCommon'
+        self.extra_gradle_dependencies: List[str] = []
         self.jackson_annotations = False
         self.xml_annotations = False
         self.pascal_properties = False
@@ -702,8 +713,12 @@ class AvroToJava:
             union_name = avro_schema['union']
             class_definition += f" extends {union_name}"
         
+        interfaces: List[str] = []
         if self.avro_annotation:
-            class_definition += " implements SpecificRecord"
+            interfaces.append("SpecificRecord")
+        interfaces.extend(self.interfaces_for(avro_schema, class_name))
+        if interfaces:
+            class_definition += " implements " + ", ".join(interfaces)
         class_definition += " {\n"
         class_definition += f"{INDENT}public {class_name}() {{}}\n"
         class_definition += class_body
@@ -754,12 +769,14 @@ class AvroToJava:
                 class_definition += ";\n"
                 class_definition += f"{INDENT}}}\n"
                 class_definition += f"\n{INDENT}public static final Schema AVROSCHEMA = new Schema.Parser().parse(getAvroSchemaJson());"
+                class_definition += SCHEMA_DOLLAR_FIELD
             else:
                 avro_schema_json = avro_schema_json.replace('"', '§')
                 avro_schema_json = f"\"+\n{INDENT}\"".join(
                     [avro_schema_json[i:i+80] for i in range(0, len(avro_schema_json), 80)])
                 avro_schema_json = avro_schema_json.replace('§', '\\"')
                 class_definition += f"\n\n{INDENT}public static final Schema AVROSCHEMA = new Schema.Parser().parse(\n{INDENT}\"{avro_schema_json}\");"
+                class_definition += SCHEMA_DOLLAR_FIELD
             
             # Store the schema for tracking
             avro_namespace = avro_schema.get('namespace', '')
@@ -1232,6 +1249,22 @@ class AvroToJava:
         hashcode_method += f"{INDENT * 2}return 0;\n"
         hashcode_method += f"{INDENT}}}\n"
         return hashcode_method
+
+    def interfaces_for(self, avro_schema: Dict, class_name: str) -> List[str]:
+        """ The extra interfaces a generated record class implements (see implements_interfaces) """
+        if not self.implements_interfaces:
+            return []
+        keys = [class_name, avro_schema.get('name', '')]
+        namespace = avro_schema.get('namespace')
+        if namespace:
+            keys.append(f"{namespace}.{avro_schema.get('name', '')}")
+        keys.append('*')  # interfaces for every record come after the record specific ones
+        result: List[str] = []
+        for key in keys:
+            for interface in self.implements_interfaces.get(key, []):
+                if interface and interface not in result:
+                    result.append(interface)
+        return result
 
     def generate_avro_get_method(self, class_name: str, fields: List[Dict], parent_package: str) -> str:
         """ Generates the get method for SpecificRecord """
@@ -2044,9 +2077,28 @@ class AvroToJava:
         with open(test_file_path, 'w', encoding='utf-8') as test_file:
             test_file.write(test_class_definition)
 
+    # Java simple type names used as declared types in the generated tests and the import each one needs
+    TEST_VALUE_TYPE_IMPORTS = {
+        'Instant': 'import java.time.Instant;',
+        'LocalDate': 'import java.time.LocalDate;',
+        'LocalTime': 'import java.time.LocalTime;',
+        'LocalDateTime': 'import java.time.LocalDateTime;',
+        'Duration': 'import java.time.Duration;',
+        'UUID': 'import java.util.UUID;',
+        'BigDecimal': 'import java.math.BigDecimal;',
+    }
+
     def get_test_imports(self, fields: List) -> List[str]:
         """ Gets the necessary imports for the test class """
         imports = []
+
+        # The property tests declare values with the simple type name (e.g. `Instant testValue = ...`), so the
+        # java.time / java.util / java.math types the fields use must be imported.
+        for field in fields:
+            for candidate in (getattr(field, 'field_type', ''), getattr(field, 'base_type', '')):
+                for simple_name, import_stmt in self.TEST_VALUE_TYPE_IMPORTS.items():
+                    if candidate and simple_name in re.findall(r'[A-Za-z_][A-Za-z0-9_]*', candidate) and import_stmt not in imports:
+                        imports.append(import_stmt)
         
         # Track simple names to detect conflicts
         # Map: simple_name -> list of FQNs that have that simple name
@@ -2294,8 +2346,9 @@ class AvroToJava:
             'byte[]': 'new byte[] { 0x01, 0x02, 0x03 }',
             'Object': 'null',  # Use null for Object types (Avro unions) to avoid reference equality issues
             # Java time types - use factory methods, not constructors
-            'Instant': 'java.time.Instant.now()',
-            'java.time.Instant': 'java.time.Instant.now()',
+            # A fixed instant: two test instances must be equal, and Avro's timestamp-millis truncates nanoseconds
+            'Instant': 'java.time.Instant.ofEpochMilli(1700000000000L)',
+            'java.time.Instant': 'java.time.Instant.ofEpochMilli(1700000000000L)',
             'LocalDate': 'java.time.LocalDate.now()',
             'java.time.LocalDate': 'java.time.LocalDate.now()',
             'LocalTime': 'java.time.LocalTime.now()',
@@ -2496,8 +2549,13 @@ class AvroToJava:
 
         build_gradle_path = os.path.join(output_dir, "build.gradle")
         if not os.path.exists(build_gradle_path):
+            build_gradle_content = BUILD_GRADLE_CONTENT
+            if self.extra_gradle_dependencies:
+                marker = "    // Add your custom dependencies here"
+                extra = "\n".join(f"    {dep}" for dep in self.extra_gradle_dependencies)
+                build_gradle_content = build_gradle_content.replace(marker, marker + "\n" + extra, 1)
             with open(build_gradle_path, 'w', encoding='utf-8') as file:
-                file.write(BUILD_GRADLE_CONTENT)
+                file.write(build_gradle_content)
         
         settings_gradle_path = os.path.join(output_dir, "settings.gradle")
         if not os.path.exists(settings_gradle_path):
@@ -2530,9 +2588,47 @@ class AvroToJava:
         self.convert_schema(schema, output_dir)
 
 
+def parse_implements(implements_interfaces) -> Dict[str, List[str]]:
+    """ Parses the --implements value: 'Record=a.b.Iface,Record=c.D,*=e.F' (or a dict) into a map """
+    if not implements_interfaces:
+        return {}
+    if isinstance(implements_interfaces, dict):
+        return {k: list(v) if isinstance(v, (list, tuple)) else [v] for k, v in implements_interfaces.items()}
+    result: Dict[str, List[str]] = {}
+    for item in str(implements_interfaces).split(','):
+        item = item.strip()
+        if not item:
+            continue
+        if '=' in item:
+            record, interface = item.split('=', 1)
+        else:
+            record, interface = '*', item
+        result.setdefault(record.strip(), []).append(interface.strip())
+    return result
+
+
+def parse_gradle_dependencies(gradle_dependencies) -> List[str]:
+    """ Parses the --gradle-dependencies value: dependency lines separated by ';' (or a list) """
+    if not gradle_dependencies:
+        return []
+    if isinstance(gradle_dependencies, (list, tuple)):
+        return [str(d).strip() for d in gradle_dependencies if str(d).strip()]
+    return [d.strip() for d in str(gradle_dependencies).split(';') if d.strip()]
+
+
 def convert_avro_to_java(avro_schema_path, java_file_path, package_name='', pascal_properties=False,
-                         jackson_annotation=False, avro_annotation=False, xml_annotation=False):
-    """Convert an Avro schema file to Java classes."""
+                         jackson_annotation=False, avro_annotation=False, xml_annotation=False,
+                         implements_interfaces=None, gradle_dependencies=None):
+    """_summary_
+
+    Converts Avro schema to Java classes
+
+    Args:
+        avro_schema_path (_type_): Avro input schema path  
+        java_file_path (_type_): Output Java project path
+        implements_interfaces: interfaces the generated records implement, 'Record=a.b.Iface,...' or a dict
+        gradle_dependencies: extra dependency lines for the generated build.gradle, separated by ';'
+    """
     if not package_name:
         package_name = os.path.splitext(os.path.basename(java_file_path))[0].replace('-', '_').lower()
     avrotojava = AvroToJava()
@@ -2541,17 +2637,29 @@ def convert_avro_to_java(avro_schema_path, java_file_path, package_name='', pasc
     avrotojava.avro_annotation = avro_annotation
     avrotojava.jackson_annotations = jackson_annotation
     avrotojava.xml_annotations = xml_annotation
+    avrotojava.implements_interfaces = parse_implements(implements_interfaces)
+    avrotojava.extra_gradle_dependencies = parse_gradle_dependencies(gradle_dependencies)
     avrotojava.convert(avro_schema_path, java_file_path)
 
 
 def convert_avro_schema_to_java(avro_schema: JsonNode, output_dir: str, package_name='',
                                 pascal_properties=False, jackson_annotation=False,
-                                avro_annotation=False, xml_annotation=False):
-    """Convert an Avro schema object to Java classes."""
+                                avro_annotation=False, xml_annotation=False,
+                                implements_interfaces=None, gradle_dependencies=None):
+    """_summary_
+
+    Converts Avro schema to Java classes
+
+    Args:
+        avro_schema (_type_): Avro schema as a dictionary or list of dictionaries
+        output_dir (_type_): Output directory path 
+    """
     avrotojava = AvroToJava()
     avrotojava.base_package = package_name
     avrotojava.pascal_properties = pascal_properties
     avrotojava.avro_annotation = avro_annotation
+    avrotojava.implements_interfaces = parse_implements(implements_interfaces)
+    avrotojava.extra_gradle_dependencies = parse_gradle_dependencies(gradle_dependencies)
     avrotojava.jackson_annotations = jackson_annotation
     avrotojava.xml_annotations = xml_annotation
     avrotojava.convert_schema(avro_schema, output_dir)
